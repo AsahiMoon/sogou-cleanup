@@ -53,5 +53,16 @@ Get-NetFirewallRule -DisplayName 'DSH-Sogou-Slim-*' -ErrorAction SilentlyContinu
     try { Remove-NetFirewallRule -Name $_.Name -ErrorAction SilentlyContinue; Log ('FWRULE removed ' + $_.DisplayName) } catch {}
 }
 
+# remove the component-download hosts block
+try {
+    $hosts = 'C:\Windows\System32\drivers\etc\hosts'
+    $cur = [IO.File]::ReadAllText($hosts)
+    if ($cur -match 'DSH-Sogou-NoComponentDL') {
+        $cur = [regex]::Replace($cur, '(?m)\r?\n[ \t]*# DSH-Sogou-NoComponentDL\r?\n[\s\S]*?# DSH-Sogou-NoComponentDL-end\r?\n', "`r`n")
+        [IO.File]::WriteAllText($hosts, $cur, [Text.Encoding]::ASCII)
+        Log 'hosts removed NoComponentDL block'
+    }
+} catch { Log ('hosts unblock fail : ' + $_.Exception.Message) }
+
 Log '================ unslim done ================'
 Write-Host ("Restored " + $n + " items. Please re-open Sogou Input / reboot if needed.")

@@ -36,6 +36,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\unslim.ps1"
 - **皮肤商城/皮肤**：`SGMyInput.exe`（CEF 宿主）、`SGWebRender.exe`（渲染）、`SGTool.exe`（换肤/装皮肤）、`SogouComMgr.exe`、`Components\SogouFlash`（动态皮肤控件）、`Components\Theme`、`skin_v3.dat`、`SkinRecent.ini`、`SkinLove.ini`、`SkinMakeSelf.ini`
 - **打字核心**：`SogouTSF.ime`、`SogouPY.ime`、`Components\Data`
 - **云输入宿主**：`SogouCloud.exe` 保留文件——它是输入法内核宿主，删除会导致皮肤商城/账户页面加载失败、且被输入法反复拉起报错；只通过注册表关闭云候选（随时可开回）。`SGDownload.exe` 保留（皮肤在线下载可能用到）
+- **`Components\SGRender`**（约 132MB，含 libcef.dll）：**保留**。它是高级/收费皮肤的 CEF 渲染组件，历史上还与登录页关联，删除有破坏皮肤渲染和账号登录的风险，因此在保护名单内。
 
 ### 会精简的部分
 
@@ -45,11 +46,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\unslim.ps1"
   `crashrpt.exe`、`SogouToolkits.exe`
 - **删除推广组件目录**：`biz_center`、`biz_pdf`、`game_center`、`AppBox`、`IChat`、
   `isgpet`、`PicFace`、`WriteSpirit`、`systembeautify`
+- **清理 `Components\MobileInput`**（跨屏/跨设备输入，与账号同步和皮肤无关；
+  代价是失去手机扫码投字、免登录跨设备复制粘贴）
 - **清理全家桶 app**：`sogoupdf`、`fastpdf_sogou`、`kzip_sogou`、`kfastpic_sogou` 等
 - **清理广告/更新缓存**：`ShiplyUpdate`、`SGSysToast`、`SGBizConfig`
   （**保留** `cache`、`SGCefCache`、`imepop`——皮肤缓存与 CEF 数据）
 - **关闭云输入候选**（注册表，可随时开回），不影响账号词库同步
 - **清理旧脚本残留的僵尸防火墙规则**
+- **在 hosts 阻断 `dl.pinyin.sogou.com`**：这是组件包下载域名。因为
+  `SogouCloud -daemon` / `SGTool -daemon` 常驻且皮肤/账号需要它们，不能靠杀进程阻止
+  组件"复活"；改为只拦这个下载域名。皮肤/账户用的是完全不同的域名
+  （`pcskin/h5api.sginput.qq.com`、`account.sogou.com`、`imedl.sogoucdn.com`、`res.sogou`），不受影响。
+
+脚本可重复运行：若某推广组件被守护进程重新下载（出现 `X` 与 `X.disabled` 并存），
+会先清掉旧副本再重新禁用，保持幂等。
 
 动手前会先把账号/皮肤用户数据完整备份到
 `C:\ProgramData\SogouHarden\backup`。

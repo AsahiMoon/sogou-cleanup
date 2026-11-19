@@ -44,7 +44,8 @@ $PROTECT_FILES = @(
     'SkinRecent.ini','SkinLove.ini','SkinMakeSelf.ini','skin.dat','skin_v3.dat',
     'acc.dat','user.dat','usrZone.dat','usrzoneext.dat'
 )
-$PROTECT_DIRS = @('SogouFlash','Theme','Data','SogouExe','Components','AllSkin','users','scd')
+$PROTECT_DIRS = @('SogouFlash','Theme','Data','SogouExe','Components','AllSkin','users','scd',
+                  'SGRender')
 function Is-Protected([string]$path) {
     $name = Split-Path -Leaf $path
     if ($PROTECT_FILES -contains $name) { return $true }
@@ -109,11 +110,19 @@ $DISABLE_EXE = @('PinyinUp.exe','Install64.exe','SogouImeRepair.exe',
 function Handle-Item([string]$p) {
     if (-not (Test-Path -LiteralPath $p)) { return }
     if (Is-Protected $p) { Log ('SKIP-PROTECTED ' + $p); return }
+    $dis = $p + '.disabled'
     if ($Purge) {
         try { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop; Log ('DELETED ' + $p) }
         catch { $script:opFail++; Log ('DELETE-FAIL ' + $p + ' : ' + $_.Exception.Message) }
     } else {
-        try { Move-Item -LiteralPath $p -Destination ($p + '.disabled') -Force -ErrorAction Stop; Log ('RENAMED ' + $p) }
+        # Component manager may have re-downloaded an item we disabled earlier,
+        # leaving both "X" and "X.disabled". Drop the stale copy first so the
+        # rename of the freshly-downloaded one does not collide.
+        if (Test-Path -LiteralPath $dis) {
+            try { Remove-Item -LiteralPath $dis -Recurse -Force -ErrorAction Stop; Log ('REMOVED-STALE-DISABLED ' + $dis) }
+            catch { $script:opFail++; Log ('STALE-REMOVE-FAIL ' + $dis + ' : ' + $_.Exception.Message); return }
+        }
+        try { Move-Item -LiteralPath $p -Destination $dis -Force -ErrorAction Stop; Log ('RENAMED ' + $p) }
         catch { $script:opFail++; Log ('RENAME-FAIL ' + $p + ' : ' + $_.Exception.Message) }
     }
 }
@@ -122,11 +131,15 @@ Step 'disable updater/promo exes' {
 }
 
 # ---------- 5. remove pure promo component folders (whitelist-guarded) ----------
+# MobileInput = cross-screen/cross-device input; unrelated to account sync or skin.
+# SGRender is deliberately NOT here - it is protected (advanced skin rendering).
 $PROMO_DIRS = @('biz_center','biz_pdf','game_center','AppBox','IChat','isgpet',
-                'PicFace','WriteSpirit','systembeautify')
+                'PicFace','WriteSpirit','systembeautify','MobileInput')
 Step 'remove promo component folders' {
     $comp = Join-Path $root 'Components'
     foreach ($n in $PROMO_DIRS) { Handle-Item (Join-Path $comp $n) }
+    # stop SGMobileInput process if present so its folder can be renamed
+    Get-Process -Name SGMobileInput -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 # ---------- 6. remove promo apps in user profile (PDF/zip/picture bundles) ----------
@@ -186,6 +199,28 @@ Step 'disable cloud input (optional, reversible)' {
 Step 'clean ad/update caches only' {
     $pd = 'C:\ProgramData\SogouInput'
     foreach ($d in @('ShiplyUpdate','SGSysToast','SGBizConfig')) { Handle-Item (Join-Path $pd $d) }
+}
+
+# ---------- 10b. block component auto-download host (prevents promo parts "reviving") ----------
+# SogouCloud/SGTool daemons re-download removed Components from dl.pinyin.sogou.com.
+# We cannot kill those daemons (skin mall + account need them), so block only the
+# component-package download host. Skin/account use DIFFERENT hosts
+# (pcskin/h5api.sginput.qq.com, account.sogou.com, imedl.sogoucdn.com, res.sogou),
+# none of which are touched here.
+Step 'block component download host in hosts' {
+    $hosts = 'C:\Windows\System32\drivers\etc\hosts'
+    $mk = '# DSH-Sogou-NoComponentDL'
+    $end = '# DSH-Sogou-NoComponentDL-end'
+    try {
+        $cur = [IO.File]::ReadAllText($hosts)
+        if ($cur -match [regex]::Escape($mk)) {
+            $cur = [regex]::Replace($cur, '(?m)\r?\n[ \t]*' + [regex]::Escape($mk) + '\r?\n[\s\S]*?' + [regex]::Escape($end) + '\r?\n', "`r`n")
+            Log 'hosts removed old NoComponentDL section (self-heal)'
+        }
+        $block = "`r`n$mk`r`n0.0.0.0 dl.pinyin.sogou.com`r`n$end`r`n"
+        [IO.File]::WriteAllText($hosts, ($cur -replace "`r`n$", '') + $block, [Text.Encoding]::ASCII)
+        Log 'hosts blocked dl.pinyin.sogou.com (component downloads only)'
+    } catch { $script:opFail++; Log ('hosts block fail : ' + $_.Exception.Message) }
 }
 
 # ---------- 11. keep SogouSvc service as official default (account sync channel) ----------
